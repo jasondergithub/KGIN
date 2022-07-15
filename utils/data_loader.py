@@ -2,7 +2,7 @@ import numpy as np
 from tqdm import tqdm
 import networkx as nx
 import scipy.sparse as sp
-
+import os
 import random
 from time import time
 from collections import defaultdict
@@ -77,15 +77,20 @@ def generate_ui_adj(rating, train_rating):
     print('already create user-item adjacency matrix', ui_adj.shape)
     return ui_adj
 
-
-def remap_item(train_data, test_data):
+def remap_item(train_data, eval_data):
     global n_users, n_items
-    n_users = max(max(train_data[:, 0]), max(test_data[:, 0])) + 1
-    n_items = max(max(train_data[:, 1]), max(test_data[:, 1])) + 1
+    n_users = max(max(train_data[:, 0]), max(eval_data[:, 0])) + 1
+    n_items = max(max(train_data[:, 1]), max(eval_data[:, 1])) + 1
 
+    eval_data_label = eval_data.take([2], axis=1)
+    indix_click = np.where(eval_data_label == 1)
+    eval_data = eval_data.take(indix_click[0], axis=0)
+
+    eval_data = eval_data.take([0, 1], axis=1)
+    train_data = train_data.take([0, 1], axis=1)
     for u_id, i_id in train_data:
         train_user_set[int(u_id)].append(int(i_id))
-    for u_id, i_id in test_data:
+    for u_id, i_id in eval_data:
         test_user_set[int(u_id)].append(int(i_id))
 
 
@@ -121,7 +126,7 @@ def read_triplets(file_name):
 def build_graph(train_data, triplets):
     ckg_graph = nx.MultiDiGraph()
     rd = defaultdict(list)
-
+    train_data = train_data.take([0, 1], axis=1)
     print("Begin to load interaction triples ...")
     for u_id, i_id in tqdm(train_data, ascii=True):
         rd[0].append([u_id, i_id])
@@ -176,10 +181,10 @@ def build_sparse_relational_graph(relation_dict):
     mean_mat_list = [_si_norm_lap(mat) for mat in adj_mat_list]
     # interaction: user->item, [n_users, n_entities]
     norm_mat_list[0] = norm_mat_list[0].tocsr()[:n_users, n_users:].tocoo()
+    # norm_mat_list[0] = norm_mat_list[0].tocoo()
     mean_mat_list[0] = mean_mat_list[0].tocsr()[:n_users, n_users:].tocoo()
 
     return adj_mat_list, norm_mat_list, mean_mat_list
-
 
 def load_data(model_args):
     global args
@@ -187,10 +192,10 @@ def load_data(model_args):
     directory = args.data_path + args.dataset + '/'
 
     print('reading train and test user-item set ...')
-#     train_cf = read_cf(directory + 'train.txt')
-#     test_cf = read_cf(directory + 'test.txt')
+    # train_cf = read_cf(directory + 'train.txt')
+    # test_cf = read_cf(directory + 'test.txt')
     train_cf, eval_cf, ui_adj = read_cf_new()
-    remap_item(train_cf, test_cf)
+    remap_item(train_cf, eval_cf)
 
     print('combinating train_cf and kg data ...')
     triplets = read_triplets(directory + 'kg_final.txt')
@@ -212,7 +217,6 @@ def load_data(model_args):
         'train_user_set': train_user_set,
         'test_user_set': test_user_set
     }
-
-    return train_cf, test_cf, user_dict, n_params, graph, \
+    return train_cf, eval_cf, user_dict, n_params, graph, \
            [adj_mat_list, norm_mat_list, mean_mat_list]
 
